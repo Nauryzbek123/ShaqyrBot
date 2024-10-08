@@ -1,8 +1,9 @@
 import { Telegraf, session, Context } from 'telegraf';
 import { ConfigMod } from '../config';
 import { getUserByTgId, saveUser } from '../../data/User';
-import { formatDate, sendAvailableTasks } from './botFunctions';
-import { getAvailibleTask, moveTaskToSendedToUser, registerUserToSlot, saveTask } from '../../data/Tasks';
+import { formatDate, notifyUserAtSlotTime, sendAvailableTasks } from './botFunctions';
+import { getAvailibleTask, getAwaitingResultTask, moveTaskToSendedToUser, registerUserToSlot, saveTask } from '../../data/Tasks';
+import { saveTaskResponse } from '../../data/TaskResponse';
 
 export async function runBot() {
 
@@ -13,13 +14,6 @@ export async function runBot() {
       bot.start(async (ctx) => {
         const telegramAddress = ctx.from.username || ctx.from.id.toString();
         const existingUser = await getUserByTgId(telegramAddress);
-        const taskData = {
-            title: "Test Task",          
-            description: "This is a test task description.",  
-            isAvailible: true, 
-            sendedToUser: false            
-          };
-          await saveTask(taskData);
   
         if (existingUser) {
           await ctx.reply(`Вы уже зарегистрированы как ${existingUser.username}. Ваш Kaspi номер: ${existingUser.kaspiNumber}.`);
@@ -55,13 +49,11 @@ export async function runBot() {
                 return;
             }
             
-            // Создаем кнопки для каждого слота
             const buttons = task.slots.map((slot, index) => {
                 return [{ text: `Слот ${index + 1}: ${formatDate(slot.time)}`, callback_data: `book_slot_${index}` }];
             });
            
     
-            // Отправляем сообщение с кнопками
             await ctx.reply('Пожалуйста, выберите слот для бронирования:', {
                 reply_markup: {
                     inline_keyboard: buttons,
@@ -75,16 +67,14 @@ export async function runBot() {
       bot.on('text', async (ctx) => {
         const telegramAddress = ctx.from.username || ctx.from.id.toString();
         const existingUser = await getUserByTgId(telegramAddress);
-  
+        const awaitingTaskResult =  await getAwaitingResultTask(telegramAddress);
         if (existingUser) {
-          // Обрабатываем уже зарегистрированных пользователей
           if (existingUser.session === 'awaitingKaspiNumber') {
             const kaspiNumber = Number(ctx.message.text);
             if (isNaN(kaspiNumber)) {
               await ctx.reply('Пожалуйста, введите корректный Kaspi номер.');
               return;
             }
-            // Обновляем данные пользователя
             existingUser.kaspiNumber = kaspiNumber;
             existingUser.session = 'completed'; // Обновляем состояние
             await existingUser.save();
@@ -96,10 +86,43 @@ export async function runBot() {
             await existingUser.save();
             await ctx.reply(`Спасибо, ${ctx.message.text}. Теперь напишите свой Kaspi номер.`);
           }
+          if(awaitingTaskResult.length > 0){
+            const taskId = awaitingTaskResult[0]._id;
+            const userResponse = ctx.message.text;
+            await saveTaskResponse(taskId.toString(),telegramAddress,userResponse); 
+            await ctx.reply(`Спасибо! Ваш ответ записан: "${userResponse}"`);
+            existingUser.session = 'completed'; // Сброс состояния
+            await existingUser.save();
+            return;
+          }
         } else {
           await ctx.reply('Вы не зарегистрированы. Пожалуйста, используйте команду /start для начала регистрации.');
         }
       });
+
+      bot.on('photo', async (ctx) => {
+        const telegramAddress = ctx.from.username || ctx.from.id.toString();
+        const existingUser = await getUserByTgId(telegramAddress);
+        const awaitingTaskResult = await getAwaitingResultTask(telegramAddress);
+        
+        if (existingUser) {
+            if (awaitingTaskResult.length > 0) {
+                const taskId = awaitingTaskResult[0]._id;
+                const userResponse = "User provided a photo."; // Or handle as needed
+    
+                const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+                const fileUrl = await ctx.telegram.getFileLink(fileId); // Get the direct link to the file
+    
+                await saveTaskResponse(taskId.toString(), telegramAddress, userResponse, fileUrl.toString());
+                await ctx.reply(`Спасибо! Ваш ответ записан с фото.`);
+                existingUser.session = 'completed'; // Reset session state
+                await existingUser.save();
+                return;
+            }
+        } else {
+            await ctx.reply('Вы не зарегистрированы. Пожалуйста, используйте команду /start для начала регистрации.');
+        }
+    });
      
     bot.action(/book_slot_(\d+)/, async (ctx) => {
         const slotIndex = parseInt(ctx.match[1], 10);
@@ -123,10 +146,9 @@ export async function runBot() {
             
             await registerUserToSlot(task._id.toString(), telegramAddress, slot.time);
             await ctx.reply(`Вы успешно зарегистрировались на слот: ${formatDate(slot.time)}`);
-            
-            // Обновляем состояние пользователя
-            existingUser.session = 'completed'; // Или любое другое состояние, которое вам нужно
+            existingUser.session = 'completed'; 
             await existingUser.save();
+            notifyUserAtSlotTime(bot, slot,telegramAddress);
         } else {
             await ctx.reply('Сначала завершите регистрацию.');
         }

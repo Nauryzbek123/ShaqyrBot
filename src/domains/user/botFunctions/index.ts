@@ -4,26 +4,6 @@ import { getAvailibleTask, getTaskNotSendedToUser, moveTaskToSendedToUser } from
 import { getAllRegisteredUsers } from '../../../data/User';
 import schedule from 'node-schedule'; 
 
-type Slot = {
-  time: Date;
-  isBooked: boolean;
-  bookedBy: string | null;
-  result?: {
-    text?: string;
-    photo?: string;
-  };
-};
-
-// Определение типа для задачи
-type Task = {
-  title: string;
-  description: string;
-  isAvailible: boolean;
-  sendedToUser: boolean;
-  slots: Slot[];
-  expirationDate: Date;
-  save: () => Promise<void>;
-};
 
 export const formatDate = (date: Date,timeZone: string = 'Asia/Almaty'): string => {
   const options: Intl.DateTimeFormatOptions = { 
@@ -41,7 +21,7 @@ export const formatDate = (date: Date,timeZone: string = 'Asia/Almaty'): string 
 export async function sendAvailableTasks(bot: Telegraf) {
     try {
       const availableTask = await getTaskNotSendedToUser();
-  
+      console.log(availableTask);
       if (!availableTask) {
         console.log('No available tasks at the moment.');
         return;
@@ -64,11 +44,26 @@ export async function sendAvailableTasks(bot: Telegraf) {
           console.log(`Sending message to ${chatId}: Доступное задание: ${availableTask.description}`);
   
           try {
-            await bot.telegram.sendMessage(chatId, `Доступное задание: ${availableTask.description}\nВременные слоты:\n${slotsInfo}\nЧтобы забронировать слот, отправьте команду: /book_slot.`);
+            let messageText = `Доступное задание: ${availableTask.description}\n`;
+            let slotText =  `Временные слоты:\n${slotsInfo}\n` +
+                            `Чтобы забронировать слот, отправьте команду: /book_slot.`;
+
+            // await bot.telegram.sendMessage(chatId, `Доступное задание: ${availableTask.description}\nВременные слоты:\n${slotsInfo}\nЧтобы забронировать слот, отправьте команду: /book_slot.`);
             const task = {
                 title: availableTask.title, 
                 description: availableTask.description, 
                 isAvailible: availableTask.isAvailible
+            }
+            if (availableTask.photos[0]) {
+              const photoUrl = `https://37ea-147-30-47-45.ngrok-free.app/${availableTask.photos[0]}`; 
+              await bot.telegram.sendPhoto(chatId, photoUrl, { caption: messageText }); 
+              await bot.telegram.sendMessage(chatId, slotText);
+            } else {
+              await bot.telegram.sendMessage(chatId, slotText);
+            }
+            if(availableTask.videos[0] !== ''){
+              const videoUrl = `https://37ea-147-30-47-45.ngrok-free.app/${availableTask.videos[0]}`;
+              await bot.telegram.sendVideo(chatId,videoUrl,{ caption: 'Вот инструкция.' })
             }
             await moveTaskToSendedToUser(task);
           } catch (error) {
@@ -84,7 +79,7 @@ export async function sendAvailableTasks(bot: Telegraf) {
   }
 
 
-  const notifyUserAtSlotTime = (bot: Telegraf<Context>, task: Task, slot: Slot, telegramAddress: number | string) => {
+  export const notifyUserAtSlotTime = (bot: Telegraf<Context>, slot: { time: Date }, telegramAddress: number | string) => {
     const slotTime = new Date(slot.time);
   
     // Запланировать отправку уведомления в начале слота

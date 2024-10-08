@@ -15,6 +15,7 @@ const config_1 = require("../config");
 const User_1 = require("../../data/User");
 const botFunctions_1 = require("./botFunctions");
 const Tasks_1 = require("../../data/Tasks");
+const TaskResponse_1 = require("../../data/TaskResponse");
 function runBot() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
@@ -23,13 +24,6 @@ function runBot() {
             bot.start((ctx) => __awaiter(this, void 0, void 0, function* () {
                 const telegramAddress = ctx.from.username || ctx.from.id.toString();
                 const existingUser = yield (0, User_1.getUserByTgId)(telegramAddress);
-                const taskData = {
-                    title: "Test Task",
-                    description: "This is a test task description.",
-                    isAvailible: true,
-                    sendedToUser: false
-                };
-                yield (0, Tasks_1.saveTask)(taskData);
                 if (existingUser) {
                     yield ctx.reply(`Вы уже зарегистрированы как ${existingUser.username}. Ваш Kaspi номер: ${existingUser.kaspiNumber}.`);
                 }
@@ -60,11 +54,9 @@ function runBot() {
                         yield ctx.reply('Нет доступных заданий.');
                         return;
                     }
-                    // Создаем кнопки для каждого слота
                     const buttons = task.slots.map((slot, index) => {
                         return [{ text: `Слот ${index + 1}: ${(0, botFunctions_1.formatDate)(slot.time)}`, callback_data: `book_slot_${index}` }];
                     });
-                    // Отправляем сообщение с кнопками
                     yield ctx.reply('Пожалуйста, выберите слот для бронирования:', {
                         reply_markup: {
                             inline_keyboard: buttons,
@@ -78,15 +70,14 @@ function runBot() {
             bot.on('text', (ctx) => __awaiter(this, void 0, void 0, function* () {
                 const telegramAddress = ctx.from.username || ctx.from.id.toString();
                 const existingUser = yield (0, User_1.getUserByTgId)(telegramAddress);
+                const awaitingTaskResult = yield (0, Tasks_1.getAwaitingResultTask)(telegramAddress);
                 if (existingUser) {
-                    // Обрабатываем уже зарегистрированных пользователей
                     if (existingUser.session === 'awaitingKaspiNumber') {
                         const kaspiNumber = Number(ctx.message.text);
                         if (isNaN(kaspiNumber)) {
                             yield ctx.reply('Пожалуйста, введите корректный Kaspi номер.');
                             return;
                         }
-                        // Обновляем данные пользователя
                         existingUser.kaspiNumber = kaspiNumber;
                         existingUser.session = 'completed'; // Обновляем состояние
                         yield existingUser.save();
@@ -98,6 +89,36 @@ function runBot() {
                         existingUser.session = 'awaitingKaspiNumber'; // Переход к следующему состоянию
                         yield existingUser.save();
                         yield ctx.reply(`Спасибо, ${ctx.message.text}. Теперь напишите свой Kaspi номер.`);
+                    }
+                    if (awaitingTaskResult.length > 0) {
+                        const taskId = awaitingTaskResult[0]._id;
+                        const userResponse = ctx.message.text;
+                        yield (0, TaskResponse_1.saveTaskResponse)(taskId.toString(), telegramAddress, userResponse);
+                        yield ctx.reply(`Спасибо! Ваш ответ записан: "${userResponse}"`);
+                        existingUser.session = 'completed'; // Сброс состояния
+                        yield existingUser.save();
+                        return;
+                    }
+                }
+                else {
+                    yield ctx.reply('Вы не зарегистрированы. Пожалуйста, используйте команду /start для начала регистрации.');
+                }
+            }));
+            bot.on('photo', (ctx) => __awaiter(this, void 0, void 0, function* () {
+                const telegramAddress = ctx.from.username || ctx.from.id.toString();
+                const existingUser = yield (0, User_1.getUserByTgId)(telegramAddress);
+                const awaitingTaskResult = yield (0, Tasks_1.getAwaitingResultTask)(telegramAddress);
+                if (existingUser) {
+                    if (awaitingTaskResult.length > 0) {
+                        const taskId = awaitingTaskResult[0]._id;
+                        const userResponse = "User provided a photo."; // Or handle as needed
+                        const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+                        const fileUrl = yield ctx.telegram.getFileLink(fileId); // Get the direct link to the file
+                        yield (0, TaskResponse_1.saveTaskResponse)(taskId.toString(), telegramAddress, userResponse, fileUrl.toString());
+                        yield ctx.reply(`Спасибо! Ваш ответ записан с фото.`);
+                        existingUser.session = 'completed'; // Reset session state
+                        yield existingUser.save();
+                        return;
                     }
                 }
                 else {
@@ -122,9 +143,9 @@ function runBot() {
                     // Регистрируем пользователя на слот
                     yield (0, Tasks_1.registerUserToSlot)(task._id.toString(), telegramAddress, slot.time);
                     yield ctx.reply(`Вы успешно зарегистрировались на слот: ${(0, botFunctions_1.formatDate)(slot.time)}`);
-                    // Обновляем состояние пользователя
-                    existingUser.session = 'completed'; // Или любое другое состояние, которое вам нужно
+                    existingUser.session = 'completed';
                     yield existingUser.save();
+                    (0, botFunctions_1.notifyUserAtSlotTime)(bot, slot, telegramAddress);
                 }
                 else {
                     yield ctx.reply('Сначала завершите регистрацию.');

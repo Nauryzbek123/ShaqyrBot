@@ -96,10 +96,58 @@ function generateTimeSlots(startTime: Date, durationMinutes: number, intervalMin
   
       slot.isBooked = true;
       slot.bookedBy = username;
-  
+      slot.status = 'awaitingResult';
       await task.save();
       console.log(`User ${username} successfully registered to slot at ${slotTime}`);
     } catch (error) {
       console.error('Error registering user to slot:', error);
+    }
+  }
+
+
+  export async function saveUserResponse(taskId: string, userId: string, textResponse?: string, photoUrl?: string) {
+    try {
+      const task = await tasks.findById(taskId);
+      
+      if (!task) {
+        throw new Error('Task not found');
+      }
+  
+      // Prepare the response object
+      const response = {
+        userId: userId,
+        text: textResponse || 'pending', // If no text response, default to 'pending'
+        photo: photoUrl || '',
+      };
+  
+      // Push the response into the results array
+      task.results.push(response);
+      await task.save();
+      
+      console.log(`Response saved for user ${userId} on task ${taskId}`);
+    } catch (error) {
+      console.error('Error saving user response:', error);
+    }
+  }
+ 
+ export async function getAwaitingResultTask(userId: string) {
+    try {
+      const tasksWithAwaitingResults = await tasks.find({
+        "slots": {
+          $elemMatch: {
+            bookedBy: userId,         
+            status: 'awaitingResult'  
+          }
+        }
+      }).exec();
+  
+      if (!tasksWithAwaitingResults || tasksWithAwaitingResults.length === 0) {
+        console.log("No tasks awaiting results for user:", userId);
+      }
+  
+      return tasksWithAwaitingResults;
+    } catch (e) {
+      console.log("Error fetching tasks with awaiting results:", e);
+      throw e;
     }
   }

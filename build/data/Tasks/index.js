@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.registerUserToSlot = exports.saveTask = exports.moveTaskToSendedToUser = exports.getTaskNotSendedToUser = exports.getAvailibleTask = void 0;
+exports.getAwaitingResultTask = exports.saveUserResponse = exports.registerUserToSlot = exports.saveTask = exports.moveTaskToSendedToUser = exports.getTaskNotSendedToUser = exports.getAvailibleTask = void 0;
 const tasks_1 = __importDefault(require("../../db/tasks"));
 function getAvailibleTask() {
     return __awaiter(this, void 0, void 0, function* () {
@@ -104,6 +104,7 @@ function registerUserToSlot(taskId, username, slotTime) {
             }
             slot.isBooked = true;
             slot.bookedBy = username;
+            slot.status = 'awaitingResult';
             yield task.save();
             console.log(`User ${username} successfully registered to slot at ${slotTime}`);
         }
@@ -113,3 +114,50 @@ function registerUserToSlot(taskId, username, slotTime) {
     });
 }
 exports.registerUserToSlot = registerUserToSlot;
+function saveUserResponse(taskId, userId, textResponse, photoUrl) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const task = yield tasks_1.default.findById(taskId);
+            if (!task) {
+                throw new Error('Task not found');
+            }
+            // Prepare the response object
+            const response = {
+                userId: userId,
+                text: textResponse || 'pending',
+                photo: photoUrl || '',
+            };
+            // Push the response into the results array
+            task.results.push(response);
+            yield task.save();
+            console.log(`Response saved for user ${userId} on task ${taskId}`);
+        }
+        catch (error) {
+            console.error('Error saving user response:', error);
+        }
+    });
+}
+exports.saveUserResponse = saveUserResponse;
+function getAwaitingResultTask(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            const tasksWithAwaitingResults = yield tasks_1.default.find({
+                "slots": {
+                    $elemMatch: {
+                        bookedBy: userId,
+                        status: 'awaitingResult'
+                    }
+                }
+            }).exec();
+            if (!tasksWithAwaitingResults || tasksWithAwaitingResults.length === 0) {
+                console.log("No tasks awaiting results for user:", userId);
+            }
+            return tasksWithAwaitingResults;
+        }
+        catch (e) {
+            console.log("Error fetching tasks with awaiting results:", e);
+            throw e;
+        }
+    });
+}
+exports.getAwaitingResultTask = getAwaitingResultTask;

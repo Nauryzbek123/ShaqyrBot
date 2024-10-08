@@ -16,22 +16,41 @@ const tasksSchema = new mongoose_1.default.Schema({
     isAvailible: {
         type: Boolean,
         required: true,
+        default: true
     },
     sendedToUser: {
         type: Boolean,
-        required: true
+        required: true,
+        default: false
     },
     slots: [
         {
             time: { type: Date, required: true },
             isBooked: { type: Boolean, default: false },
-            bookedBy: { type: String, default: null }, // Username пользователя, который зарегистрировался
+            bookedBy: { type: String, default: null },
+            status: { type: String, default: '' },
         },
     ],
+    results: {
+        type: [{
+                userId: { type: String, required: true },
+                text: { type: String, default: 'pending' },
+                photo: { type: String, default: '' }, // Photo URL if applicable
+            }],
+        default: [],
+    },
     expirationDate: {
         type: Date,
         required: true,
-    }
+    },
+    photos: [{
+            type: String,
+            default: '',
+        }],
+    videos: [{
+            type: String,
+            default: '',
+        }],
 }, {
     timestamps: true,
 });

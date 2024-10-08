@@ -8,10 +8,14 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendAvailableTasks = exports.formatDate = void 0;
+exports.notifyUserAtSlotTime = exports.sendAvailableTasks = exports.formatDate = void 0;
 const Tasks_1 = require("../../../data/Tasks");
 const User_1 = require("../../../data/User");
+const node_schedule_1 = __importDefault(require("node-schedule"));
 const formatDate = (date, timeZone = 'Asia/Almaty') => {
     const options = {
         day: '2-digit',
@@ -29,6 +33,7 @@ function sendAvailableTasks(bot) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             const availableTask = yield (0, Tasks_1.getTaskNotSendedToUser)();
+            console.log(availableTask);
             if (!availableTask) {
                 console.log('No available tasks at the moment.');
                 return;
@@ -48,12 +53,27 @@ function sendAvailableTasks(bot) {
                 if (chatId) {
                     console.log(`Sending message to ${chatId}: Доступное задание: ${availableTask.description}`);
                     try {
-                        yield bot.telegram.sendMessage(chatId, `Доступное задание: ${availableTask.description}\nВременные слоты:\n${slotsInfo}\nЧтобы забронировать слот, отправьте команду: /book_slot.`);
+                        let messageText = `Доступное задание: ${availableTask.description}\n`;
+                        let slotText = `Временные слоты:\n${slotsInfo}\n` +
+                            `Чтобы забронировать слот, отправьте команду: /book_slot.`;
+                        // await bot.telegram.sendMessage(chatId, `Доступное задание: ${availableTask.description}\nВременные слоты:\n${slotsInfo}\nЧтобы забронировать слот, отправьте команду: /book_slot.`);
                         const task = {
                             title: availableTask.title,
                             description: availableTask.description,
                             isAvailible: availableTask.isAvailible
                         };
+                        if (availableTask.photos[0]) {
+                            const photoUrl = `https://37ea-147-30-47-45.ngrok-free.app/${availableTask.photos[0]}`;
+                            yield bot.telegram.sendPhoto(chatId, photoUrl, { caption: messageText });
+                            yield bot.telegram.sendMessage(chatId, slotText);
+                        }
+                        else {
+                            yield bot.telegram.sendMessage(chatId, slotText);
+                        }
+                        if (availableTask.videos[0] !== '') {
+                            const videoUrl = `https://37ea-147-30-47-45.ngrok-free.app/${availableTask.videos[0]}`;
+                            yield bot.telegram.sendVideo(chatId, videoUrl, { caption: 'Вот инструкция.' });
+                        }
                         yield (0, Tasks_1.moveTaskToSendedToUser)(task);
                     }
                     catch (error) {
@@ -71,3 +91,16 @@ function sendAvailableTasks(bot) {
     });
 }
 exports.sendAvailableTasks = sendAvailableTasks;
+const notifyUserAtSlotTime = (bot, slot, telegramAddress) => {
+    const slotTime = new Date(slot.time);
+    // Запланировать отправку уведомления в начале слота
+    node_schedule_1.default.scheduleJob(slotTime, () => __awaiter(void 0, void 0, void 0, function* () {
+        try {
+            yield bot.telegram.sendMessage(telegramAddress, 'Пожалуйста, отправьте ваше задание (текст и/или фото) для текущего временного слота.');
+        }
+        catch (error) {
+            console.error(`Failed to notify user ${telegramAddress} at slot time:`, error);
+        }
+    }));
+};
+exports.notifyUserAtSlotTime = notifyUserAtSlotTime;
